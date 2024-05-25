@@ -1,113 +1,196 @@
-import Image from "next/image";
+import Header from "@/components/Header";
+import LotteryCard from "@/components/LotteryCard";
 
-export default function Home() {
+const apiBaseUrl =
+  "https://testing-luckito-backend.rnssol.com/api/luckito/lottery/get-lottery?lotteryType=";
+
+const fetchCoinList = async () => {
+  const response = await fetch("https://api.coingecko.com/api/v3/coins/list");
+  if (!response.ok) {
+    throw new Error("Failed to fetch coin list");
+  }
+  const data = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error("Coin list is not an array");
+  }
+  return data;
+};
+
+const fetchCoinData = async (coinId: string) => {
+  // https://api.coingecko.com/api/v3/coins/ripple
+
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/coins/${coinId}`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch data for coin ID: ${coinId}`);
+  }
+  const data = await response.json();
+  return data.image;
+};
+
+const getImages = async (coinNames: string[]) => {
+  let coinList;
+  try {
+    coinList = await fetchCoinList();
+  } catch (error) {
+    console.error("Error fetching coin list:", error);
+    return [];
+  }
+
+  if (!Array.isArray(coinList)) {
+    console.error("Coin list is not an array");
+    return [];
+  }
+
+  // Create a Map from the coin list for quick lookup by name
+  const coinMap = new Map(
+    coinList.map((coin: any) => [coin.name.toLowerCase(), coin.id])
+  );
+
+  // Map coinNames to coin IDs using the Map
+  const coinIds = coinNames.map(
+    (coinName: string) => coinMap.get(coinName.toLowerCase()) || null
+  );
+
+  const imagePromises = coinIds
+    .filter((coinId): coinId is string => coinId !== null)
+    .map(async (coinId) => {
+      try {
+        return await fetchCoinData(coinId);
+      } catch (error) {
+        console.error(`Error fetching image for coin ID: ${coinId}`, error);
+        return null;
+      }
+    });
+
+  const results = await Promise.allSettled(imagePromises);
+  return results
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => (result as PromiseFulfilledResult<any>).value);
+};
+
+const getLotteryInfo = async (lotteryType: string): Promise<any> => {
+  const res = await fetch(`${apiBaseUrl}${lotteryType}`);
+  const data = await res.json();
+  return data;
+};
+
+const formatTime = (seconds: number) => {
+  if (isNaN(seconds)) {
+    console.error("Invalid seconds value:", seconds);
+    return "Invalid time";
+  }
+
+  const isNegative = seconds < 0;
+  const absSeconds = Math.abs(seconds);
+  const h = Math.floor(absSeconds / 3600)
+    .toString()
+    .padStart(2, "0");
+  const m = Math.floor((absSeconds % 3600) / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (absSeconds % 60).toString().padStart(2, "0");
+  return isNegative ? `${h}:${m}:${s} ago` : `${h}:${m}:${s}`;
+};
+
+export default async function Home() {
+  const cosmicLotteryData = getLotteryInfo("COSMIC");
+  const classicLotteryData = getLotteryInfo("CLASSIC");
+  const atomicLotteryData = getLotteryInfo("ATOMIC");
+  const [cosmic, classic, atomic] = await Promise.all([
+    cosmicLotteryData,
+    classicLotteryData,
+    atomicLotteryData,
+  ]);
+
+  const cosmicCoinNames =
+    cosmic.data.poolAmount?.map((pool: any) => pool.coinName.toLowerCase()) ||
+    [];
+  const classicCoinNames =
+    classic.data.poolAmount?.map((pool: any) => pool.coinName.toLowerCase()) ||
+    [];
+  const atomicCoinNames =
+    atomic.data.poolAmount?.map((pool: any) => pool.coinName.toLowerCase()) ||
+    [];
+
+  const cosmicImages = await getImages(cosmicCoinNames);
+  const classicImages = await getImages(classicCoinNames);
+  const atomicImages = await getImages(atomicCoinNames);
+
+  const validateNextDraw = (nextDraw: any) => {
+    return typeof nextDraw === "number" ? nextDraw : NaN;
+  };
+  const defaultImage =
+    "https://assets.coingecko.com/coins/images/1/large/bitcoin.png";
+
+  const lotteries = [
+    {
+      ...cosmic,
+      data: {
+        ...cosmic.data,
+        formattedNextDraw: formatTime(validateNextDraw(cosmic.data.nextDraw)),
+        poolAmount: cosmic.data.poolAmount?.map((pool: any) => {
+          return {
+            ...pool,
+            image:
+              cosmicImages
+                .map((image: any) => image?.large)
+                .find((image: any) =>
+                  image?.toLowerCase().includes(pool.coinName.toLowerCase())
+                ) || defaultImage,
+          };
+        }),
+      },
+    },
+    {
+      ...classic,
+      data: {
+        ...classic.data,
+        formattedNextDraw: formatTime(validateNextDraw(classic.data.nextDraw)),
+
+        poolAmount: classic.data.poolAmount?.map((pool: any) => {
+          return {
+            ...pool,
+            image:
+              classicImages
+                .map((image: any) => image?.large)
+                .find((image: any) =>
+                  image?.toLowerCase().includes(pool.coinName.toLowerCase())
+                ) || defaultImage,
+          };
+        }),
+      },
+    },
+    {
+      ...atomic,
+      data: {
+        ...atomic.data,
+        formattedNextDraw: formatTime(validateNextDraw(atomic.data.nextDraw)),
+        poolAmount: atomic.data.poolAmount?.map((pool: any) => {
+          return {
+            ...pool,
+            image:
+              atomicImages
+                .map((image: any) => image?.large)
+                .find((image: any) =>
+                  image?.toLowerCase().includes(pool.coinName.toLowerCase())
+                ) || defaultImage,
+          };
+        }),
+      },
+    },
+  ];
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
+    <div className="min-h-screen px-96">
+      <Header />
+      <h1 className="py-5 text-2xl font-semibold">Latest Results</h1>
+      <div className="font-mono flex flex-col gap-20">
+        {lotteries.map((lottery, index) => (
+          <LotteryCard key={`key-${index}`} lottery={lottery} />
+        ))}
       </div>
-
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+    </div>
   );
 }
